@@ -1,6 +1,7 @@
 node_modules/
 app/js/bundle.js
 app/js/bundle.js.map
+app/js/bundle.js.LICENSE.txt
 *.zip
 dist/
 .DS_Store
