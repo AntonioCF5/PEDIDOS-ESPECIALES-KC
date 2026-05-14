@@ -1,0 +1,18 @@
+{
+  "service": "CRM",
+  "locale": ["en"],
+  "csp": {},
+  "modules": {
+    "widgets": [
+      {
+        "location": "web.tab",
+        "url": "/app/widget.html",
+        "name": "Pedidos Especiales KC"
+      }
+    ]
+  },
+  "cspDomains": {
+    "connect-src": []
+  },
+  "config": []
+}
