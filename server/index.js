@@ -27,6 +27,7 @@ const MIME = {
 
 const pems = selfsigned.generate([{ name: "commonName", value: HOST }], {
   days: 365,
+  keySize: 2048,
 });
 
 https
