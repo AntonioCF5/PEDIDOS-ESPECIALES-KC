@@ -307,17 +307,7 @@ export default function OrderForm({ onCompleted }) {
       [DEAL_FIELDS.ESTADO]: shipping?.ESTADO || "",
       [DEAL_FIELDS.NOTAS_ENTREGA]: shipping?.NOTAS_ENTREGA || "",
       // Subform — un renglón por cada cuadro del pedido.
-      [DEAL_FIELDS.CUADROS_ORDEN]: (rows || []).map((row) => {
-        // Debug temporal — confirmar qué campos trae el row del estado del
-        // widget (en especial cantidad y precioUnitario, que estaban
-        // quedando vacíos en el subform de Zoho).
-        // eslint-disable-next-line no-console
-        console.log("[Deal] row crudo:", JSON.stringify(row));
-        const serialized = serializeCuadroRow(row);
-        // eslint-disable-next-line no-console
-        console.log("[Deal] row serializado:", JSON.stringify(serialized));
-        return serialized;
-      }),
+      [DEAL_FIELDS.CUADROS_ORDEN]: (rows || []).map(serializeCuadroRow),
     };
   }
 
@@ -449,14 +439,6 @@ export default function OrderForm({ onCompleted }) {
         await updateDeal(dealId, { [DEAL_FIELDS.DEAL_NAME]: newDealName });
       } catch (renameErr) {
         renameFailed = renameErr;
-        // eslint-disable-next-line no-console
-        console.log(
-          "[deal-rename] error FULL:",
-          JSON.stringify({
-            message: renameErr?.message,
-            originalError: renameErr?.originalError,
-          })
-        );
       }
 
       if (renameFailed) {

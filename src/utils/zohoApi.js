@@ -210,12 +210,6 @@ export async function executeFunction(funcName, args = {}) {
  * cuando un picklist o api_name no coincide).
  */
 export async function createDeal(APIData) {
-  // Debug temporal — qué le mandamos al insertRecord y qué nos devuelve.
-  // eslint-disable-next-line no-console
-  console.log(
-    "[Deal] Cuadros_Orden:",
-    JSON.stringify(APIData?.Cuadros_Orden)
-  );
   let res;
   try {
     res = await ZOHO.CRM.API.insertRecord({
@@ -223,13 +217,8 @@ export async function createDeal(APIData) {
       APIData,
     });
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.log("[Deal] insertRecord error:", JSON.stringify(err));
     throw normalizeError(err, "No se pudo crear el Deal en Zoho.");
   }
-
-  // eslint-disable-next-line no-console
-  console.log("[Deal] insert FULL:", JSON.stringify(res));
 
   const rec = res?.data?.[0];
   if (!rec || (rec.code && rec.code !== "SUCCESS")) {
@@ -251,12 +240,6 @@ export async function updateDeal(dealId, APIData) {
   // Sin el `id` en el body, Zoho responde MANDATORY_NOT_FOUND con
   // details.api_name = "id".
   const APIDataWithId = { id: String(dealId), ...APIData };
-  // Debug temporal — qué APIData estamos mandando al updateRecord.
-  // eslint-disable-next-line no-console
-  console.log(
-    "[Deal] update APIData:",
-    JSON.stringify({ RecordID: String(dealId), APIData: APIDataWithId })
-  );
   let res;
   try {
     res = await ZOHO.CRM.API.updateRecord({
@@ -265,13 +248,8 @@ export async function updateDeal(dealId, APIData) {
       APIData: APIDataWithId,
     });
   } catch (err) {
-    // eslint-disable-next-line no-console
-    console.log("[Deal] update SDK error FULL:", JSON.stringify(err));
     throw normalizeError(err, "No se pudo actualizar el Deal en Zoho.");
   }
-
-  // eslint-disable-next-line no-console
-  console.log("[Deal] update FULL:", JSON.stringify(res));
 
   const rec = res?.data?.[0];
   if (!rec || (rec.code && rec.code !== "SUCCESS")) {

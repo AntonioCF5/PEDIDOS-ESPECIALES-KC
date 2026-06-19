@@ -305,15 +305,9 @@ export async function createWooOrder(orderInput, dealId) {
     // Single-stringify es suficiente ahora que executeFunction NO envuelve
     // en `arguments` (ver zohoApi.js). El SDK entrega `order_input` como
     // String al param nombrado de la firma Deluge.
-    const orderInputStr = JSON.stringify(orderInput || {});
-    const dealIdStr = String(dealId || "");
-    // eslint-disable-next-line no-console
-    console.log("[krea_create_woocommerce_order] order_input:", orderInputStr);
-    // eslint-disable-next-line no-console
-    console.log("[krea_create_woocommerce_order] deal_id:", dealIdStr);
     const res = await executeFunction(WOOCOMMERCE.FUNCTION_NAME, {
-      order_input: orderInputStr,
-      deal_id: dealIdStr,
+      order_input: JSON.stringify(orderInput || {}),
+      deal_id: String(dealId || ""),
     });
 
     // La Function puede devolver el resultado en distintas envolturas.

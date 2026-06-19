@@ -61,8 +61,6 @@ function mountApp(reason) {
     container.innerHTML = "";
     const root = createRoot(container);
     root.render(<App />);
-    // eslint-disable-next-line no-console
-    console.log("[widget] montado vía", reason);
   } catch (err) {
     showBootError("Error al renderizar la app: " + (err?.message || err));
   }
