@@ -4,8 +4,8 @@
    ========================================================================== */
 
 :root {
-  --brand: #1f6f5c;
-  --brand-dark: #16513f;
+  --brand: #6b2d5c;
+  --brand-dark: #4a1f40;
   --accent: #e08a3c;
   --bg: #f4f5f7;
   --surface: #ffffff;
@@ -124,6 +124,15 @@ h4 {
 .banner-error {
   background: var(--danger-bg);
   color: var(--danger);
+  /* Preserva saltos de línea y formatea el dump JSON de errores de Zoho
+     (formatZohoErrorForUI) de forma legible, sin reflow. */
+  white-space: pre-wrap;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  max-height: 50vh;
+  overflow: auto;
 }
 
 .banner-warn {
@@ -303,6 +312,166 @@ textarea.has-error {
   background: var(--brand);
   color: #fff;
   border-color: var(--brand);
+}
+
+/* --------------------------------------------------------------------------
+   Datos del pedido (paso 1) — Tienda arriba, Tipo + Contacto lado a lado
+   -------------------------------------------------------------------------- */
+.datos-pedido-tienda {
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.tienda-picker {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.tienda-btn {
+  flex: 1 1 200px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.tienda-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.tienda-btn.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.tienda-abbrev {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 4px 10px;
+  border-radius: 6px;
+  min-width: 38px;
+  text-align: center;
+}
+
+.tienda-btn.active .tienda-abbrev {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.tienda-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.datos-pedido-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 760px) {
+  .datos-pedido-grid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
+.datos-pedido-col {
+  min-width: 0; /* permite que el contenido (inputs) se encoja sin romper el grid */
+}
+
+.datos-pedido-col .subhead {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+/* Botones de tipo de pedido: en la columna angosta van apilados verticalmente. */
+.tipo-pedido-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  /* En móvil la columna ocupa todo el ancho: los botones vuelven a fila. */
+  .tipo-pedido-picker {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .tipo-pedido-btn {
+    flex: 1 1 140px;
+  }
+}
+
+.tipo-pedido-btn {
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
+  color: var(--ink);
+  text-align: left;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.tipo-pedido-btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.tipo-pedido-btn.active {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+.motivo-reposicion {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.motivo-reposicion textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.motivo-reposicion textarea:focus {
+  outline: none;
+  border-color: var(--brand);
+}
+
+.motivo-reposicion textarea.has-error {
+  border-color: var(--danger);
+  background: var(--danger-bg);
 }
 
 .contact-results {
@@ -712,6 +881,12 @@ textarea.has-error {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.success-meta {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin: -4px 0 8px;
 }
 
 /* --------------------------------------------------------------------------

@@ -18,6 +18,10 @@ export const MODULES = {
   MATERIALES: "Materiales_Producci_n",
   // TODO(FR-15 / D-6): crear el módulo de Sets en Zoho CRM KC y confirmar el api_name.
   SETS: "Sets",
+  // El widget crea un Deal antes de generar la orden WooCommerce. La función
+  // krea_create_woocommerce_order_kc actualiza ese Deal con Numero_de_orden y
+  // Woocommerce_Order_ID al terminar.
+  DEALS: "Deals",
 };
 
 /* --------------------------------------------------------------------------
@@ -74,6 +78,84 @@ export const CONTACT_FIELDS = {
 };
 
 /* --------------------------------------------------------------------------
+ * Campos del módulo Deals (el widget crea un Deal antes de la orden WC).
+ *
+ * ⚠️ Si Zoho rechaza el insertRecord con INVALID_DATA, lo más probable es
+ * que uno de estos api_names no exista en el layout del módulo Deals de
+ * Krea Canvas. Ajustar aquí — ningún otro archivo escribe api_names literales.
+ * Campos de WC (Numero_de_orden, Woocommerce_Order_ID) los rellena la Zoho
+ * Function al crear la orden, NO el widget.
+ * ------------------------------------------------------------------------ */
+export const DEAL_FIELDS = {
+  ID: "id",
+  DEAL_NAME: "Deal_Name",
+  STAGE: "Stage",
+  CONTACT_NAME: "Contact_Name",
+  TIENDA: "Tienda",
+  // Picklist en Zoho — los valores deben coincidir EXACTOS con TIPO_PEDIDO_VALUES
+  // ("Reposición", "Muestra", "Pedido Especial"). Si Zoho rechaza, revisar acentos.
+  TIPO_PEDIDO: "Tipo_de_Pedido",
+  // Solo se llena cuando tipoPedido === "Reposición".
+  MOTIVO_REPOSICION: "Motivo_de_reposicion",
+  // Número de la orden original que se está reponiendo. Solo se llena cuando
+  // tipoPedido === "Reposición". OJO: NO confundir con NUMERO_ORDEN — ese es
+  // el número WC de la NUEVA orden que crea este pedido.
+  ORDEN_A_REPONER: "Orden_a_Reponer",
+  // Campos solicitados como `null` en el payload inicial (los completa el
+  // operador o algún otro proceso después).
+  TOTAL_GUIAS: "Total_Guias",
+  CIUDAD_SESION: "Ciudad_Sesi_n",
+  // Pago y totales (numéricos planos — sin "$" ni comas).
+  TOTAL_CUADRO: "Total_Cuadro",
+  DESCUENTO: "Descuento",
+  GRAN_TOTAL: "Gran_Total",
+  METODO_PAGO: "Metodo_de_pago",
+  // Datetime ISO 8601 con offset MX. Si en KC resulta ser campo de solo Fecha,
+  // el formatter zohoDateOnly() devuelve yyyy-MM-dd.
+  FECHA_Y_HORA: "Fecha_y_Hora",
+  // Dirección de envío — espejo de billing/shipping de WC.
+  CALLE_Y_NUMERO: "Calle_y_Numero",
+  COLONIA: "Colonia",
+  CIUDAD: "Ciudad",
+  CODIGO_POSTAL: "Codigo_Postal",
+  ESTADO: "Estado",
+  NOTAS_ENTREGA: "Notas_Extra_de_Entrega",
+  // Los rellena la Zoho Function krea_create_woocommerce_order al terminar.
+  NUMERO_ORDEN: "Numero_de_orden",
+  WOOCOMMERCE_ORDER_ID: "Woocommerce_Order_ID",
+  // Subform: un renglón por cada cuadro del pedido. Ver SUBFORM_FIELDS.
+  CUADROS_ORDEN: "Cuadros_Orden",
+};
+
+/* --------------------------------------------------------------------------
+ * Columnas del subform `Cuadros_Orden` del Deal. Un renglón por cuadro /
+ * line item. `Product` es lookup al módulo Products (MODULES.PRODUCTS):
+ * en filas de catálogo se enlaza al id real del producto Zoho; en filas
+ * personalizadas queda null porque el cuadro nace solo en WooCommerce.
+ * `Material` es lookup a Materiales_Producci_n (MODULES.MATERIALES).
+ * ------------------------------------------------------------------------ */
+export const SUBFORM_FIELDS = {
+  ES_PERSONALIZADO: "Es_Personalizado",
+  PRODUCT: "Product",
+  MATERIAL: "Material",
+  BASE_CM: "Base_cm",
+  ALTURA_CM: "Altura_cm",
+  CANTIDAD: "Cantidad",
+  PRECIO_UNITARIO: "Precio_Unitario",
+  // Subtotal NO se manda — es campo Formula en Zoho, se calcula solo.
+  NOTAS: "Notas",
+};
+
+/* --------------------------------------------------------------------------
+ * Valores del picklist Stage en Deals (solo los que usa el widget).
+ * "En Produccion" sin acento — debe coincidir EXACTO con el picklist en
+ * Zoho CRM KC; si Zoho rechaza con INVALID_DATA aquí, agregar el acento.
+ * ------------------------------------------------------------------------ */
+export const STAGE_VALUES = {
+  INICIAL: "En Produccion",
+};
+
+/* --------------------------------------------------------------------------
  * Tipo de medida (picklist "Metrica" en Products)
  * ------------------------------------------------------------------------ */
 export const TIPO_MEDIDA = {
@@ -88,6 +170,61 @@ export const TIPO_MEDIDA_OPTIONS = [TIPO_MEDIDA.CM, TIPO_MEDIDA.PULGADAS];
 export const ROW_TYPES = {
   CATALOGO: "catalogo",
   PERSONALIZADO: "personalizado",
+};
+
+/* --------------------------------------------------------------------------
+ * Clase de pedido (paso 1 del widget). Es metadato puro: no cambia el flujo
+ * de captura (precios, dirección, pago siguen iguales) ni el prefijo de
+ * productos personalizados en WooCommerce (CUSTOM_PRODUCT_PREFIX se mantiene
+ * "Pedido Especial" porque el Componente 2 lo usa para excluir de sync).
+ * Se incluye en meta_data y customer_note de la orden WC para que producción
+ * y administración sepan qué tipo de pedido es.
+ * ------------------------------------------------------------------------ */
+export const TIPO_PEDIDO_VALUES = {
+  REPOSICION: "Reposición",
+  MUESTRA: "Muestra",
+  PEDIDO_ESPECIAL: "Pedido Especial",
+};
+
+export const TIPO_PEDIDO_OPTIONS = [
+  TIPO_PEDIDO_VALUES.REPOSICION,
+  TIPO_PEDIDO_VALUES.MUESTRA,
+  TIPO_PEDIDO_VALUES.PEDIDO_ESPECIAL,
+];
+
+/**
+ * Prefijos de productos custom creados por el widget en WooCommerce.
+ * Los nombres reales son `${tipoPedido} | <cant> <material> <medidas>` —
+ * uno por cada tipo de pedido. Esta lista la usa `useProducts` para
+ * excluirlos del catálogo (no debe aparecer un "Pedido Especial | ..."
+ * de una orden anterior como producto seleccionable en otra).
+ *
+ * Si la integración del Componente 2 también filtra por este prefijo para
+ * excluirlos del sync, debe usar esta misma lista — no solo "Pedido Especial".
+ */
+export const CUSTOM_PRODUCT_PREFIXES = [
+  TIPO_PEDIDO_VALUES.PEDIDO_ESPECIAL,
+  TIPO_PEDIDO_VALUES.REPOSICION,
+  TIPO_PEDIDO_VALUES.MUESTRA,
+];
+
+/* --------------------------------------------------------------------------
+ * Tienda (paso 1 del widget). KC y KS son las dos tiendas del grupo Krea.
+ * El valor que se persiste en Zoho (Deal.Tienda y meta_data de WC) es el
+ * NOMBRE COMPLETO ("Krea Canvas" / "Krea Studio") porque es lo que ya
+ * existe como picklist en el módulo Deals. La abreviatura es solo para UI.
+ * ------------------------------------------------------------------------ */
+export const TIENDA_VALUES = {
+  KC: "Krea Canvas",
+  KS: "Krea Studio",
+};
+
+export const TIENDA_OPTIONS = [TIENDA_VALUES.KC, TIENDA_VALUES.KS];
+
+/** Abreviaturas para mostrar de forma compacta en la UI. */
+export const TIENDA_ABBREV = {
+  [TIENDA_VALUES.KC]: "KC",
+  [TIENDA_VALUES.KS]: "KS",
 };
 
 /* --------------------------------------------------------------------------
@@ -109,6 +246,20 @@ export const METODO_PAGO_VALUES = {
 };
 
 export const METODO_PAGO_OPTIONS = Object.values(METODO_PAGO_VALUES);
+
+/**
+ * Mapeo de cada método del widget al `payment_method` (slug/ID) que WooCommerce
+ * espera en su API de órdenes. WC no requiere que el slug corresponda a un
+ * gateway instalado — si no hay gateway con ese ID, simplemente lo guarda
+ * como string y muestra `payment_method_title` en la UI.
+ */
+export const METODO_PAGO_WC_SLUG = {
+  [METODO_PAGO_VALUES.EFECTIVO]: "efectivo",
+  [METODO_PAGO_VALUES.TRANSFERENCIA]: "transferencia",
+  [METODO_PAGO_VALUES.TARJETA_DEBITO]: "tarjeta_debito",
+  [METODO_PAGO_VALUES.TARJETA_CREDITO]: "tarjeta_credito",
+  [METODO_PAGO_VALUES.MIXTO]: "pago_mixto",
+};
 
 export const METODO_PAGO_BREAKDOWN = {
   [METODO_PAGO_VALUES.EFECTIVO]: [
@@ -215,10 +366,11 @@ export const SHIPPING_FIELDS = [
  * Integración con WooCommerce de Krea Canvas
  * ------------------------------------------------------------------------ */
 export const WOOCOMMERCE = {
-  // Zoho Function (Deluge) que crea la orden en el WooCommerce de Krea Canvas.
-  // TODO: crear esta función en Zoho CRM KC (ver docs/WOOCOMMERCE_FUNCTION.md)
-  // junto con su Connection y Variable CRM; confirmar el api_name final.
-  FUNCTION_NAME: "krea_create_woocommerce_order_kc",
+  // Zoho Function (Deluge) que crea la orden en WooCommerce. Recibe solo
+  // metadatos: { order_type, store, contact_id, deal_id }. La función se
+  // encarga de leer el Deal, crear productos custom si aplica, y crear la
+  // orden en WC. Atiende tanto KC como KS — sin sufijo _kc.
+  FUNCTION_NAME: "krea_create_woocommerce_order",
 
   // WooCommerce KC está configurado con prices_include_tax = true.
   // Los precios capturados en el widget incluyen IVA; el builder los divide

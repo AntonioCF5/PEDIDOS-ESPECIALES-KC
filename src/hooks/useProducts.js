@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { getAllRecords, normalizeError } from "../utils/zohoApi";
-import { MODULES, PRODUCT_FIELDS, WOOCOMMERCE } from "../utils/constants";
+import {
+  MODULES,
+  PRODUCT_FIELDS,
+  WOOCOMMERCE,
+  CUSTOM_PRODUCT_PREFIXES,
+} from "../utils/constants";
 import { getCI } from "../utils/getCI";
 import { toNumber } from "../utils/formatters";
 
@@ -41,17 +46,19 @@ export default function useProducts() {
     getAllRecords(MODULES.PRODUCTS)
       .then((all) => {
         if (cancelled) return;
-        const prefix = WOOCOMMERCE.CUSTOM_PRODUCT_PREFIX.toLowerCase();
+        // Excluye todos los productos custom creados por este widget,
+        // independientemente del tipo de pedido (Pedido Especial / Reposición / Muestra).
+        const customPrefixes = CUSTOM_PRODUCT_PREFIXES.map((p) =>
+          p.toLowerCase()
+        );
         const list = all
           .map(normalizeProduct)
           .filter((p) => p.active !== false)
-          .filter(
-            (p) =>
-              !p.name.trim().toLowerCase().startsWith(prefix)
-          )
-          .filter(
-            (p) => !p.tienda || p.tienda === WOOCOMMERCE.TIENDA_KC
-          )
+          .filter((p) => {
+            const lname = p.name.trim().toLowerCase();
+            return !customPrefixes.some((prefix) => lname.startsWith(prefix));
+          })
+          .filter((p) => !p.tienda || p.tienda === WOOCOMMERCE.TIENDA_KC)
           .sort((a, b) => a.name.localeCompare(b.name, "es"));
         setProducts(list);
       })

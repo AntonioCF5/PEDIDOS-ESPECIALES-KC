@@ -18,11 +18,17 @@ export default function App() {
         <main className="content">
           <div className="success-screen">
             <div className="success-check" aria-hidden>✓</div>
-            <h2>Pedido especial creado</h2>
+            <h2>Pedido creado</h2>
             <p>
-              Orden en WooCommerce KC:{" "}
+              Orden en WooCommerce:{" "}
               <strong>#{completed.order_number || completed.order_id}</strong>
             </p>
+            {completed.deal_id && (
+              <p className="success-meta">
+                Deal en Zoho CRM:{" "}
+                <strong>{completed.deal_id}</strong>
+              </p>
+            )}
             <button
               type="button"
               className="btn-primary btn-lg"

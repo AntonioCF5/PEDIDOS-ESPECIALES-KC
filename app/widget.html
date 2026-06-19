@@ -4,12 +4,93 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pedidos Especiales — Krea Canvas</title>
-    <script
-      src="https://js.zohostatic.com/zohocrm/v2/javascript/ZohoEmbededAppSDK.min.js"
-    ></script>
+    <style>
+      html, body { margin: 0; padding: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+      #boot { padding: 24px; color: #444; }
+      #boot .spinner { display:inline-block; width:14px; height:14px; border:2px solid #ccc; border-top-color:#888; border-radius:50%; vertical-align:middle; margin-right:8px; animation: spin 0.8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      #boot-error { display:none; padding:16px; margin:24px; background:#fde8e8; border:1px solid #f5c2c2; border-radius:6px; color:#7a1f1f; white-space:pre-wrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script src="js/bundle.js"></script>
+    <div id="root">
+      <div id="boot">
+        <span class="spinner"></span>
+        Cargando widget… <span id="boot-stage">[1/6] HTML listo</span>
+      </div>
+    </div>
+    <pre id="boot-error"></pre>
+
+    <!-- Diagnóstico: corre ANTES del SDK para que las etapas se reporten
+         aunque el SDK del CDN nunca termine de cargar. -->
+    <script>
+      window.__sdkLoaded = false;
+      window.__bootStage = function (txt) {
+        var el = document.getElementById("boot-stage");
+        if (el) el.textContent = "[" + txt + "]";
+        console.log("[widget][stage]", txt);
+      };
+      window.__bootError = function (msg) {
+        var box = document.getElementById("boot-error");
+        if (box) {
+          box.style.display = "block";
+          box.textContent = msg;
+        }
+        console.error("[widget][error]", msg);
+      };
+      window.addEventListener("error", function (e) {
+        window.__bootError("error global: " + (e.message || "desconocido"));
+      });
+      window.addEventListener("unhandledrejection", function (e) {
+        var r = e.reason;
+        window.__bootError(
+          "promesa rechazada: " +
+            (r && r.message ? r.message : (typeof r === "string" ? r : JSON.stringify(r)))
+        );
+      });
+
+      window.__bootStage("1.5/6] cargando SDK Zoho desde CDN...");
+
+      // Watchdog: si el SDK no terminó de cargar en 4 s, asumimos que está
+      // bloqueado y arrancamos la app sin él (con un aviso).
+      setTimeout(function () {
+        if (!window.__sdkLoaded) {
+          window.__bootError(
+            "El SDK de Zoho NO respondió en 4 segundos. Causa típica: \n" +
+            " - bloqueo de red / CSP a js.zohostatic.com, o\n" +
+            " - estás abriendo el widget fuera del iframe de CRM (no se puede contactar al frame padre).\n\n" +
+            "Voy a arrancar la app en modo degradado para que veas la UI; las llamadas a Zoho fallarán."
+          );
+          // Forzamos la carga del bundle aunque el SDK no haya terminado.
+          if (!document.getElementById("bundle-script")) {
+            var s = document.createElement("script");
+            s.id = "bundle-script";
+            s.src = "js/bundle.js";
+            s.onload = function () { window.__bootStage("3/6] bundle.js cargado (sin SDK)"); };
+            s.onerror = function () { window.__bootError("Tampoco se pudo cargar js/bundle.js."); };
+            document.body.appendChild(s);
+          }
+        }
+      }, 4000);
+    </script>
+
+    <!-- SDK Zoho v1.5 — versión actual y la que el widget de Krea Studio
+         (REFERENCIA_WIDGET_KREA_STUDIO.md §2) confirmó funcional. v1.2 es
+         muy vieja y v2.x no existe en live.zwidgets.com. js.zohostatic.com
+         devuelve 404 en todas sus rutas. -->
+    <script
+      async
+      src="https://live.zwidgets.com/js-sdk/1.5/ZohoEmbededAppSDK.min.js"
+      onload="window.__sdkLoaded=true; window.__bootStage('2/6] SDK Zoho cargado');"
+      onerror="window.__bootError('Falla de red al cargar el SDK Zoho (' + this.src + ').');"
+    ></script>
+
+    <!-- bundle.js corre cuando llega; chequea window.ZOHO antes de usarlo. -->
+    <script
+      id="bundle-script"
+      src="js/bundle.js"
+      onload="window.__bootStage('3/6] bundle.js cargado');"
+      onerror="window.__bootError('No se pudo cargar js/bundle.js (404 o CSP).');"
+    ></script>
   </body>
 </html>

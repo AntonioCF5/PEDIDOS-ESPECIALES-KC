@@ -11,9 +11,16 @@
  *
  * NFR-1: este módulo NO crea ni modifica Deals de Zoho bajo ninguna circunstancia.
  */
-import { WOOCOMMERCE, ROW_TYPES, TIPO_MEDIDA } from "./constants";
+import {
+  WOOCOMMERCE,
+  ROW_TYPES,
+  TIPO_MEDIDA,
+  TIPO_PEDIDO_VALUES,
+  METODO_PAGO_BREAKDOWN,
+  METODO_PAGO_WC_SLUG,
+} from "./constants";
 import { executeFunction } from "./zohoApi";
-import { toNumber, round2 } from "./formatters";
+import { toNumber, round2, formatCurrency } from "./formatters";
 
 /**
  * WooCommerce KC tiene prices_include_tax = true. Los precios del widget
@@ -45,8 +52,30 @@ export function rowSubtotal(row) {
   return round2(qty * pu);
 }
 
+/**
+ * Construye los detalles del cuadro custom — los usamos en DOS lugares por
+ * cada line_item: como `meta_data` (línea de orden) y como `attributes`
+ * (producto en sí). Doble vía hace el display inmune al tema/template:
+ *   - meta_data: lo que WooCommerce muestra por default bajo cada línea.
+ *   - attributes con visible:true: queda pegado al producto, aparece en
+ *     correo de orden, página de producto y página de orden incluso si
+ *     el tema sobreescribe `order-details-item-meta.php`.
+ */
+function buildCuadroFields(row) {
+  const fields = [
+    { name: "Tipo", value: "Cuadro personalizado" },
+    { name: "Material", value: materialLabel(row) },
+    { name: "Base", value: String(row.base ?? "") },
+    { name: "Altura", value: String(row.altura ?? "") },
+    { name: "Tipo de medida", value: row.tipoMedida || TIPO_MEDIDA.CM },
+  ];
+  if (row.set?.name) fields.push({ name: "Set", value: String(row.set.name) });
+  if (row.notas) fields.push({ name: "Notas", value: String(row.notas) });
+  return fields;
+}
+
 /** Construye una línea `line_items` para WooCommerce a partir de un row. */
-function buildLineItem(row) {
+function buildLineItem(row, tipoPedido) {
   const qty = toNumber(row.cantidad) || 1;
   const puExTax = exTax(row.precioUnitario);
   const totalExTax = round2(puExTax * qty);
@@ -68,13 +97,31 @@ function buildLineItem(row) {
     return item;
   }
 
-  // Pieza personalizada (sin WC ID) → la Zoho Function crea el producto en
-  // WooCommerce antes de la orden, con el prefijo "Pedido Especial".
+  // Pieza personalizada — la Zoho Function crea el producto en WooCommerce
+  // antes de postear la orden. Prefijo dinámico según tipoPedido:
+  //   Muestra        → "Muestra | 1 Canvas 60x80cm"
+  //   Reposición     → "Reposición | 1 Canvas 60x80cm"
+  //   Pedido Especial → "Pedido Especial | 1 Canvas 60x80cm"
+  const prefix =
+    (tipoPedido && String(tipoPedido).trim()) ||
+    WOOCOMMERCE.CUSTOM_PRODUCT_PREFIX;
   const nombre =
-    `${WOOCOMMERCE.CUSTOM_PRODUCT_PREFIX} | ${qty} ${materialLabel(row)} ` +
-    medidasLabel(row);
+    `${prefix} | ${qty} ${materialLabel(row)} ` + medidasLabel(row);
 
-  const item = {
+  const fields = buildCuadroFields(row);
+
+  // Para attributes de WooCommerce: name, visible:true, options:[<value>].
+  const attributes = fields.map((f) => ({
+    name: f.name,
+    visible: true,
+    options: [f.value],
+  }));
+
+  // Para meta_data del line_item: key/value plano (formato heredado, sigue
+  // funcionando como antes en Krea Studio).
+  const meta_data = fields.map((f) => ({ key: f.name, value: f.value }));
+
+  return {
     product_id: 0,
     create_product: true,
     product_draft: {
@@ -83,42 +130,67 @@ function buildLineItem(row) {
       regular_price: String(puExTax),
       status: "publish",
       catalog_visibility: "hidden",
+      attributes,
     },
     quantity: qty,
     subtotal: String(totalExTax),
     total: String(totalExTax),
-    meta_data: [
-      { key: "Tipo", value: "Cuadro personalizado" },
-      { key: "Material", value: materialLabel(row) },
-      { key: "Base", value: String(row.base ?? "") },
-      { key: "Altura", value: String(row.altura ?? "") },
-      {
-        key: "Tipo de medida",
-        value: row.tipoMedida || TIPO_MEDIDA.CM,
-      },
-    ],
+    meta_data,
   };
-  if (row.set?.name) {
-    item.meta_data.push({ key: "Set", value: String(row.set.name) });
+}
+
+/**
+ * Construye las entradas de `meta_data` a nivel ORDEN para que el pago aparezca
+ * legible en la página de la orden de WooCommerce. Las keys son texto plano
+ * sin underscore inicial (las que empiezan con `_` WC las trata como meta
+ * privado y no las muestra en la UI).
+ *
+ * Recorre el `METODO_PAGO_BREAKDOWN[metodoPago]` para saber qué campos pide
+ * el método elegido, agarra el valor capturado del `breakdown`, y los empuja
+ * usando el `label` declarativo (mismo que el operador vio en el widget).
+ */
+function buildPaymentMetaForOrder(metodoPago, breakdown) {
+  const out = [];
+  if (!metodoPago) return out;
+  out.push({ key: "Método de pago", value: metodoPago });
+  const fields = METODO_PAGO_BREAKDOWN[metodoPago] || [];
+  for (const f of fields) {
+    const raw = breakdown?.[f.key];
+    if (raw == null || raw === "") continue;
+    if (f.type === "amount") {
+      const num = toNumber(raw);
+      if (num == null) continue;
+      out.push({ key: f.label, value: formatCurrency(num) });
+    } else {
+      out.push({ key: f.label, value: String(raw) });
+    }
   }
-  if (row.notas) {
-    item.meta_data.push({ key: "Notas", value: String(row.notas) });
-  }
-  return item;
+  return out;
 }
 
 /**
  * Construye el JSON que espera `POST /wp-json/wc/v3/orders` (con la extensión
  * `create_product` que interpreta la Zoho Function para las piezas nuevas).
+ *
+ * El widget arma este payload y se lo pasa a `krea_create_woocommerce_order`
+ * vía `createWooOrder(payload, dealId)`. La función Deluge lo parsea como
+ * `order_input.toJSONMap()` y postea a WooCommerce server-side. La tienda
+ * (KC/KS) la lee del Deal, no del payload.
  */
 export function buildWooOrderPayload({
+  tipoPedido,
+  ordenAReponer,
+  tienda,
   contacto,
   direccion,
   rows,
   totals,
   metodoPago,
   breakdown,
+  dealId,
 }) {
+  // tipoPedido lo necesita buildLineItem para el prefijo del producto custom.
+  const _tipoPedido = tipoPedido || "";
   const firstName = contacto?.firstName || "";
   const lastName = contacto?.lastName || contacto?.fullName || "";
 
@@ -139,7 +211,7 @@ export function buildWooOrderPayload({
     phone: contacto?.phone || "",
   };
 
-  const line_items = (rows || []).map(buildLineItem);
+  const line_items = (rows || []).map((row) => buildLineItem(row, _tipoPedido));
 
   const fee_lines = [];
   const descuento = toNumber(totals?.descuento) || 0;
@@ -151,24 +223,59 @@ export function buildWooOrderPayload({
     });
   }
 
+  // "Orden a reponer" — solo aplica a reposiciones; se usa tanto en el
+  // customer_note (banda visible arriba del pedido) como en meta_data.
+  const orden = String(ordenAReponer || "").trim();
+  const isReposicion =
+    tipoPedido === TIPO_PEDIDO_VALUES.REPOSICION && Boolean(orden);
+
   const customer_note = [
+    tipoPedido ? `Tipo de pedido: ${tipoPedido}` : "",
+    tienda ? `Tienda: ${tienda}` : "",
     direccion?.NOTAS_ENTREGA ? `Entrega: ${direccion.NOTAS_ENTREGA}` : "",
     metodoPago ? `Método de pago: ${metodoPago}` : "",
+    isReposicion ? `Orden a reponer: ${orden}` : "",
   ]
     .filter(Boolean)
     .join(" | ");
 
+  // Meta legible para la UI de la orden en WC (primero, así aparece arriba).
+  const paymentMeta = buildPaymentMetaForOrder(metodoPago, breakdown);
+
+  // Misma "Orden a reponer" también como meta_data legible (key sin "_"
+  // inicial para que WC la muestre en la página de la orden).
+  const reposicionMeta = isReposicion
+    ? [{ key: "Orden a reponer", value: orden }]
+    : [];
+
   const meta_data = [
+    // 1) Bloque visible para el cliente / staff en la página de la orden WC.
+    ...paymentMeta,
+    ...reposicionMeta,
+    // 2) Bloque legacy (snake_case) para downstream — Zoho Functions,
+    //    reportes, integraciones. WC los muestra igual, pero la información
+    //    útil ya quedó arriba con labels en español.
     { key: "origen", value: "Widget Pedidos Especiales KC" },
+    { key: "tipo_pedido", value: tipoPedido || "" },
+    { key: "tienda", value: tienda || "" },
     { key: "metodo_pago", value: metodoPago || "" },
     { key: "desglose_cobro", value: JSON.stringify(breakdown || {}) },
     { key: "contacto_zoho_id", value: String(contacto?.id || "") },
+    { key: "deal_zoho_id", value: String(dealId || "") },
     { key: "total_capturado", value: String(toNumber(totals?.granTotal) || 0) },
   ];
 
+  // payment_method (slug) y payment_method_title (display) llenan los campos
+  // nativos de WC. set_paid: true cuando el operador seleccionó método —
+  // significa que la transacción se cerró en el widget; WC marca la orden
+  // como pagada y le aplica el ORDER_STATUS sin pasar por "pending".
+  const paymentSlug = METODO_PAGO_WC_SLUG[metodoPago] || "";
+
   return {
     status: WOOCOMMERCE.ORDER_STATUS,
-    set_paid: false,
+    payment_method: paymentSlug,
+    payment_method_title: metodoPago || "",
+    set_paid: Boolean(metodoPago),
     billing,
     shipping: address,
     line_items,
@@ -179,13 +286,34 @@ export function buildWooOrderPayload({
 }
 
 /**
- * Invoca la Zoho Function que crea la orden en WooCommerce KC.
+ * Invoca la Zoho Function `krea_create_woocommerce_order`.
+ *
+ * Firma Deluge:
+ *   string standalone.krea_create_woocommerce_order(String order_input,
+ *                                                   String deal_id)
+ *
+ * `order_input` viaja como string JSON serializado del WC payload (line_items,
+ * billing, shipping, fee_lines, meta_data). La función parsea, crea productos
+ * personalizados si aplica, postea la orden en WooCommerce y actualiza el
+ * Deal con Numero_de_orden / Woocommerce_Order_ID. La tienda (KC/KS) la
+ * resuelve leyendo el Deal — no se manda como argumento.
+ *
  * Nunca lanza: devuelve { ok, order_id, order_number } | { ok:false, error }.
  */
-export async function createWooOrder(orderInput) {
+export async function createWooOrder(orderInput, dealId) {
   try {
+    // Single-stringify es suficiente ahora que executeFunction NO envuelve
+    // en `arguments` (ver zohoApi.js). El SDK entrega `order_input` como
+    // String al param nombrado de la firma Deluge.
+    const orderInputStr = JSON.stringify(orderInput || {});
+    const dealIdStr = String(dealId || "");
+    // eslint-disable-next-line no-console
+    console.log("[krea_create_woocommerce_order] order_input:", orderInputStr);
+    // eslint-disable-next-line no-console
+    console.log("[krea_create_woocommerce_order] deal_id:", dealIdStr);
     const res = await executeFunction(WOOCOMMERCE.FUNCTION_NAME, {
-      order_input: orderInput,
+      order_input: orderInputStr,
+      deal_id: dealIdStr,
     });
 
     // La Function puede devolver el resultado en distintas envolturas.
@@ -206,10 +334,17 @@ export async function createWooOrder(orderInput) {
     }
 
     if (parsed && parsed.ok) {
+      // `deal_updated` lo reporta la Deluge cuando logró (true) o no (false)
+      // escribir Numero_de_orden / Woocommerce_Order_ID en el Deal. Si el
+      // campo viene ausente (versión vieja de la Function), asumimos `true`
+      // — solo disparamos el fallback client-side cuando es explícitamente
+      // false, para no sobreescribir sin necesidad.
       return {
         ok: true,
         order_id: parsed.order_id,
         order_number: parsed.order_number || parsed.order_id,
+        deal_updated: parsed.deal_updated !== false,
+        deal_update_error: parsed.deal_update_error || null,
       };
     }
     return {

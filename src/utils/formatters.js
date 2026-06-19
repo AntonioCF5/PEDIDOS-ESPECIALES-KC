@@ -45,6 +45,16 @@ export function round2(value) {
 }
 
 /**
+ * Fecha sin hora en el formato que aceptan los campos `Date` de Zoho:
+ * YYYY-MM-DD (zona horaria local, NO UTC, para evitar que un Closing_Date
+ * de hoy se guarde como ayer en CRMs con tz negativo).
+ */
+export function zohoDateOnly(date = new Date()) {
+  const pad = (x) => String(x).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+/**
  * Fecha/hora en el formato que acepta Zoho: YYYY-MM-DDTHH:mm:ss±HH:MM.
  * NUNCA usar Date#toISOString() (sufijo Z) — Zoho lo rechaza con INVALID_DATA.
  */

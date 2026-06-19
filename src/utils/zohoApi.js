@@ -171,7 +171,14 @@ export async function getSets() {
     return await getAllRecords(MODULES.SETS);
   } catch (err) {
     const e = normalizeError(err);
-    if (/invalid_module|not\s*found|no\s*module|invalid url|404/i.test(e.message)) {
+    // Zoho reporta el módulo inexistente con varias frases:
+    //   "INVALID_MODULE", "the module name given seems to be invalid",
+    //   "No such module", "invalid url Pattern", 404, etc.
+    if (
+      /invalid[_\s]*module|module.*invalid|not\s*found|no\s*module|no such module|invalid url|404/i.test(
+        e.message
+      )
+    ) {
       return [];
     }
     throw e;
@@ -179,12 +186,96 @@ export async function getSets() {
 }
 
 /**
- * Ejecuta una Zoho Function standalone. Los argumentos se envían serializados
- * bajo la clave `arguments` (la función Deluge los recibe como un string JSON
- * y los parsea — ver docs/WOOCOMMERCE_FUNCTION.md).
+ * Ejecuta una Zoho Function standalone con args nombrados.
+ *
+ * Las keys de `args` se entregan DIRECTO al SDK y el SDK las mapea uno-a-uno
+ * a los parámetros de la firma Deluge. Ejemplo:
+ *
+ *   executeFunction("foo", { order_input: "...", deal_id: "..." })
+ *   →  Deluge: standalone.foo(String order_input, String deal_id)
+ *
+ * NOTA: NO envolver en `{ arguments: args }`. Ese patrón solo aplica cuando
+ * la función Deluge tiene un único param literal llamado `arguments`
+ * (legacy del widget de Krea Studio). Con args nombrados, el wrapper hace
+ * que el SDK ignore las keys reales y la función recibe todo como null.
  */
 export async function executeFunction(funcName, args = {}) {
-  return ZOHO.CRM.FUNCTIONS.execute(funcName, {
-    arguments: JSON.stringify(args),
-  });
+  return ZOHO.CRM.FUNCTIONS.execute(funcName, args);
+}
+
+/**
+ * Crea un Deal en Zoho CRM con los campos ya formateados según api_names del
+ * módulo Deals. Devuelve { id, ...APIData } del Deal creado. Si Zoho rechaza
+ * lanza un Error normalizado con el mensaje real (típicamente INVALID_DATA
+ * cuando un picklist o api_name no coincide).
+ */
+export async function createDeal(APIData) {
+  // Debug temporal — qué le mandamos al insertRecord y qué nos devuelve.
+  // eslint-disable-next-line no-console
+  console.log(
+    "[Deal] Cuadros_Orden:",
+    JSON.stringify(APIData?.Cuadros_Orden)
+  );
+  let res;
+  try {
+    res = await ZOHO.CRM.API.insertRecord({
+      Entity: MODULES.DEALS,
+      APIData,
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.log("[Deal] insertRecord error:", JSON.stringify(err));
+    throw normalizeError(err, "No se pudo crear el Deal en Zoho.");
+  }
+
+  // eslint-disable-next-line no-console
+  console.log("[Deal] insert FULL:", JSON.stringify(res));
+
+  const rec = res?.data?.[0];
+  if (!rec || (rec.code && rec.code !== "SUCCESS")) {
+    // Zoho devuelve { code: "INVALID_DATA", details: {...}, message: "..." }
+    // dentro de data[0] cuando la inserción falla — no como rejection.
+    throw normalizeError(rec, "Zoho rechazó la creación del Deal.");
+  }
+  return { id: rec.details?.id, ...APIData };
+}
+
+/**
+ * Actualiza un Deal existente. Sigue el mismo patrón que createDeal:
+ * data[0].code === "SUCCESS" es OK; cualquier otro código se vuelve Error
+ * normalizado.
+ */
+export async function updateDeal(dealId, APIData) {
+  if (!dealId) throw new Error("updateDeal: falta dealId.");
+  // El SDK exige el `id` DENTRO del APIData además del RecordID externo.
+  // Sin el `id` en el body, Zoho responde MANDATORY_NOT_FOUND con
+  // details.api_name = "id".
+  const APIDataWithId = { id: String(dealId), ...APIData };
+  // Debug temporal — qué APIData estamos mandando al updateRecord.
+  // eslint-disable-next-line no-console
+  console.log(
+    "[Deal] update APIData:",
+    JSON.stringify({ RecordID: String(dealId), APIData: APIDataWithId })
+  );
+  let res;
+  try {
+    res = await ZOHO.CRM.API.updateRecord({
+      Entity: MODULES.DEALS,
+      RecordID: String(dealId),
+      APIData: APIDataWithId,
+    });
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.log("[Deal] update SDK error FULL:", JSON.stringify(err));
+    throw normalizeError(err, "No se pudo actualizar el Deal en Zoho.");
+  }
+
+  // eslint-disable-next-line no-console
+  console.log("[Deal] update FULL:", JSON.stringify(res));
+
+  const rec = res?.data?.[0];
+  if (!rec || (rec.code && rec.code !== "SUCCESS")) {
+    throw normalizeError(rec, "Zoho rechazó la actualización del Deal.");
+  }
+  return { id: dealId, ...APIData };
 }
