@@ -342,6 +342,49 @@ export const ESTADOS_MEXICO = [
   "Zacatecas",
 ];
 
+/**
+ * Mapeo nombre de estado → código WooCommerce (ISO 3166-2:MX).
+ * WooCommerce REST API rechaza el bloque `billing`/`shipping` con
+ * `rest_invalid_param` cuando `state` llega como nombre completo
+ * ("Coahuila") en lugar del código corto ("COA"). El widget guarda el
+ * nombre completo en el Deal/UI; al construir el payload WC convertimos
+ * a código vía este mapa.
+ */
+export const ESTADO_WC_CODE = {
+  "Aguascalientes": "AGS",
+  "Baja California": "BCN",
+  "Baja California Sur": "BCS",
+  "Campeche": "CAM",
+  "Chiapas": "CHP",
+  "Chihuahua": "CHH",
+  "Ciudad de México": "DIF",
+  "Coahuila": "COA",
+  "Colima": "COL",
+  "Durango": "DUR",
+  "Estado de México": "MEX",
+  "Guanajuato": "GUA",
+  "Guerrero": "GRO",
+  "Hidalgo": "HID",
+  "Jalisco": "JAL",
+  "Michoacán": "MIC",
+  "Morelos": "MOR",
+  "Nayarit": "NAY",
+  "Nuevo León": "NLE",
+  "Oaxaca": "OAX",
+  "Puebla": "PUE",
+  "Querétaro": "QUE",
+  "Quintana Roo": "ROO",
+  "San Luis Potosí": "SLP",
+  "Sinaloa": "SIN",
+  "Sonora": "SON",
+  "Tabasco": "TAB",
+  "Tamaulipas": "TAM",
+  "Tlaxcala": "TLA",
+  "Veracruz": "VER",
+  "Yucatán": "YUC",
+  "Zacatecas": "ZAC",
+};
+
 export const SHIPPING_FIELDS = [
   { key: "CALLE_Y_NUMERO", label: "Calle y número", required: true, type: "text" },
   { key: "COLONIA", label: "Colonia", required: true, type: "text" },

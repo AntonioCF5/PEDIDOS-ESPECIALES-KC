@@ -18,6 +18,7 @@ import {
   TIPO_PEDIDO_VALUES,
   METODO_PAGO_BREAKDOWN,
   METODO_PAGO_WC_SLUG,
+  ESTADO_WC_CODE,
 } from "./constants";
 import { executeFunction } from "./zohoApi";
 import { toNumber, round2, formatCurrency } from "./formatters";
@@ -194,13 +195,19 @@ export function buildWooOrderPayload({
   const firstName = contacto?.firstName || "";
   const lastName = contacto?.lastName || contacto?.fullName || "";
 
+  // WC para México exige código ISO 3166-2 ("COA"), no el nombre completo
+  // ("Coahuila"). Si el operador no eligió estado, mandamos string vacío
+  // (WC lo acepta vacío; rechaza solo cuando llega un valor desconocido).
+  const estadoNombre = direccion?.ESTADO || "";
+  const estadoCode = ESTADO_WC_CODE[estadoNombre] || "";
+
   const address = {
     first_name: firstName,
     last_name: lastName,
     address_1: direccion?.CALLE_Y_NUMERO || "",
     address_2: direccion?.COLONIA || "",
     city: direccion?.CIUDAD || "",
-    state: direccion?.ESTADO || "",
+    state: estadoCode,
     postcode: direccion?.CODIGO_POSTAL || "",
     country: "MX",
   };
