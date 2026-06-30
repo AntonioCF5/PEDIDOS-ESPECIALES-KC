@@ -19,9 +19,55 @@ import {
   METODO_PAGO_BREAKDOWN,
   METODO_PAGO_WC_SLUG,
   ESTADO_WC_CODE,
+  DEAL_FIELDS,
 } from "./constants";
-import { executeFunction } from "./zohoApi";
+import { executeFunction, getDeal } from "./zohoApi";
 import { toNumber, round2, formatCurrency } from "./formatters";
+
+/** Sleep helper para el polling. */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Sondea el Deal cada `intervalMs` hasta que aparezca `Numero_de_orden` o
+ * se agote `timeoutMs`. Se usa como fallback cuando el SDK
+ * `ZOHO.CRM.FUNCTIONS.execute` falla con timeout (la función Deluge tarda
+ * ~10s+ y el gateway del widget corta antes, pero la función igual termina
+ * server-side y escribe Numero_de_orden / Woocommerce_Order_ID en el Deal).
+ *
+ * Devuelve el mismo shape que createWooOrder.
+ */
+async function pollDealForWcOrder(dealId, timeoutMs, intervalMs) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await sleep(intervalMs);
+    let deal;
+    try {
+      deal = await getDeal(dealId);
+    } catch {
+      continue; // error de red transitorio → seguimos polleando
+    }
+    const orderNumber = deal?.[DEAL_FIELDS.NUMERO_ORDEN];
+    const wcId = deal?.[DEAL_FIELDS.WOOCOMMERCE_ORDER_ID];
+    if (orderNumber && String(orderNumber).trim()) {
+      return {
+        ok: true,
+        order_id: wcId || null,
+        order_number: orderNumber,
+        // La función Deluge ya escribió ambos campos — confirmamos como
+        // deal_updated:true para que el widget NO intente la actualización
+        // de respaldo (sería un overwrite redundante con los mismos valores).
+        deal_updated: true,
+        deal_update_error: null,
+      };
+    }
+  }
+  return {
+    ok: false,
+    error: `Timeout esperando confirmación del pedido (${Math.floor(timeoutMs / 1000)}s sin Numero_de_orden en el Deal).`,
+  };
+}
 
 /**
  * WooCommerce KC tiene prices_include_tax = true. Los precios del widget
@@ -308,6 +354,7 @@ export function buildWooOrderPayload({
  * Nunca lanza: devuelve { ok, order_id, order_number } | { ok:false, error }.
  */
 export async function createWooOrder(orderInput, dealId) {
+  let primaryError = null;
   try {
     // Single-stringify es suficiente ahora que executeFunction NO envuelve
     // en `arguments` (ver zohoApi.js). El SDK entrega `order_input` como
@@ -335,11 +382,9 @@ export async function createWooOrder(orderInput, dealId) {
     }
 
     if (parsed && parsed.ok) {
-      // `deal_updated` lo reporta la Deluge cuando logró (true) o no (false)
-      // escribir Numero_de_orden / Woocommerce_Order_ID en el Deal. Si el
-      // campo viene ausente (versión vieja de la Function), asumimos `true`
-      // — solo disparamos el fallback client-side cuando es explícitamente
-      // false, para no sobreescribir sin necesidad.
+      // Camino feliz — la función terminó antes del timeout del SDK.
+      // `deal_updated` indica si la Deluge logró escribir Numero_de_orden /
+      // Woocommerce_Order_ID. Default seguro `true` cuando viene ausente.
       return {
         ok: true,
         order_id: parsed.order_id,
@@ -348,16 +393,31 @@ export async function createWooOrder(orderInput, dealId) {
         deal_update_error: parsed.deal_update_error || null,
       };
     }
-    return {
-      ok: false,
-      error:
-        parsed?.error ||
-        "La función de WooCommerce no devolvió un resultado válido.",
-    };
+    primaryError =
+      parsed?.error ||
+      "La función de WooCommerce no devolvió un resultado válido.";
   } catch (err) {
-    return {
-      ok: false,
-      error: err?.message || String(err) || "Error al invocar la función.",
-    };
+    primaryError = err?.message || String(err) || "Error al invocar la función.";
   }
+
+  // Si llegamos acá: el SDK falló o devolvió un resultado raro. La causa
+  // más común es el TIMEOUT del gateway del widget (~10s) cuando la función
+  // tarda más (crear producto WC custom + crear orden suele tomar 10-15s).
+  // La función Deluge, sin embargo, sigue corriendo server-side hasta
+  // terminar — y al terminar escribe Numero_de_orden en el Deal.
+  //
+  // Polling de respaldo: revisamos el Deal cada 3 s hasta encontrar
+  // Numero_de_orden o cumplir 90 s. Si lo encontramos → el pedido SÍ se
+  // creó y devolvemos ok=true con los datos del Deal.
+  if (!dealId) {
+    return { ok: false, error: primaryError };
+  }
+  const polled = await pollDealForWcOrder(dealId, 90000, 3000);
+  if (polled.ok) {
+    return polled;
+  }
+  return {
+    ok: false,
+    error: `${primaryError}\n\nReintenté leyendo el Deal por 90 s y tampoco apareció el número de orden, así que la función no completó. ${polled.error}`,
+  };
 }

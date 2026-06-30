@@ -204,6 +204,25 @@ export async function executeFunction(funcName, args = {}) {
 }
 
 /**
+ * Lee un Deal por id. Devuelve el record crudo o null si no se encontró.
+ * Lo usa el polling de createWooOrder para detectar que la Zoho Function ya
+ * escribió Numero_de_orden incluso si el SDK reportó timeout antes.
+ */
+export async function getDeal(dealId) {
+  if (!dealId) throw new Error("getDeal: falta dealId.");
+  let res;
+  try {
+    res = await ZOHO.CRM.API.getRecord({
+      Entity: MODULES.DEALS,
+      RecordID: String(dealId),
+    });
+  } catch (err) {
+    throw normalizeError(err, "No se pudo leer el Deal.");
+  }
+  return res?.data?.[0] || null;
+}
+
+/**
  * Crea un Deal en Zoho CRM con los campos ya formateados según api_names del
  * módulo Deals. Devuelve { id, ...APIData } del Deal creado. Si Zoho rechaza
  * lanza un Error normalizado con el mensaje real (típicamente INVALID_DATA
