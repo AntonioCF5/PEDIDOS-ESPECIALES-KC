@@ -412,7 +412,10 @@ export async function createWooOrder(orderInput, dealId) {
   if (!dealId) {
     return { ok: false, error: primaryError };
   }
-  const polled = await pollDealForWcOrder(dealId, 90000, 3000);
+  // 180 s (3 min) es el techo — la función Deluge con /products/batch termina
+  // <30 s incluso para pedidos de 100 productos custom, así que rarísimo
+  // llegamos ahí. Intervalo de 2 s = detección más rápida (30 pings/min).
+  const polled = await pollDealForWcOrder(dealId, 180000, 2000);
   if (polled.ok) {
     return polled;
   }

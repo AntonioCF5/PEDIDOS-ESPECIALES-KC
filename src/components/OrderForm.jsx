@@ -686,7 +686,7 @@ export default function OrderForm({ onCompleted }) {
             onClick={handleCreateOrder}
           >
             {submitting
-              ? "Procesando…"
+              ? "Creando pedido (esto puede tardar hasta 30 s)…"
               : resumeState
               ? resumeState.wcResult
                 ? resumeState.wcResult.deal_updated === false
