@@ -79,112 +79,21 @@ function exTax(amountInclTax) {
   return round2(n / (1 + WOOCOMMERCE.TAX_RATE));
 }
 
-/** Etiqueta legible de medidas para el nombre del producto personalizado. */
-function medidasLabel(row) {
-  const unidad = row.tipoMedida === TIPO_MEDIDA.PULGADAS ? "in" : "cm";
-  const base = row.base != null && row.base !== "" ? row.base : "?";
-  const altura = row.altura != null && row.altura !== "" ? row.altura : "?";
-  return `${base}x${altura}${unidad}`;
-}
-
-/** Nombre del material de una línea personalizada. */
-function materialLabel(row) {
-  return row.material?.alias || row.material?.name || "Material";
-}
-
-/** Subtotal (con IVA) de una línea del pedido. */
+/** Subtotal (con IVA) de una línea del pedido. Consumido por totals.js. */
 export function rowSubtotal(row) {
   const qty = toNumber(row.cantidad) || 0;
   const pu = toNumber(row.precioUnitario) || 0;
   return round2(qty * pu);
 }
 
-/**
- * Construye los detalles del cuadro custom — los usamos en DOS lugares por
- * cada line_item: como `meta_data` (línea de orden) y como `attributes`
- * (producto en sí). Doble vía hace el display inmune al tema/template:
- *   - meta_data: lo que WooCommerce muestra por default bajo cada línea.
- *   - attributes con visible:true: queda pegado al producto, aparece en
- *     correo de orden, página de producto y página de orden incluso si
- *     el tema sobreescribe `order-details-item-meta.php`.
- */
-function buildCuadroFields(row) {
-  const fields = [
-    { name: "Tipo", value: "Cuadro personalizado" },
-    { name: "Material", value: materialLabel(row) },
-    { name: "Base", value: String(row.base ?? "") },
-    { name: "Altura", value: String(row.altura ?? "") },
-    { name: "Tipo de medida", value: row.tipoMedida || TIPO_MEDIDA.CM },
-  ];
-  if (row.set?.name) fields.push({ name: "Set", value: String(row.set.name) });
-  if (row.notas) fields.push({ name: "Notas", value: String(row.notas) });
-  return fields;
-}
-
-/** Construye una línea `line_items` para WooCommerce a partir de un row. */
-function buildLineItem(row, tipoPedido) {
-  const qty = toNumber(row.cantidad) || 1;
-  const puExTax = exTax(row.precioUnitario);
-  const totalExTax = round2(puExTax * qty);
-
-  // Producto de catálogo con Woocommerce_ID → se referencia directo.
-  if (row.tipo === ROW_TYPES.CATALOGO && row.producto?.woocommerceId) {
-    const item = {
-      product_id: Number(row.producto.woocommerceId),
-      quantity: qty,
-    };
-    // Solo override de precio si el operador lo cambió respecto al de catálogo.
-    if (row.precioUnitario != null && row.precioUnitario !== "") {
-      item.subtotal = String(totalExTax);
-      item.total = String(totalExTax);
-    }
-    if (row.notas) {
-      item.meta_data = [{ key: "Notas", value: String(row.notas) }];
-    }
-    return item;
-  }
-
-  // Pieza personalizada — la Zoho Function crea el producto en WooCommerce
-  // antes de postear la orden. Prefijo dinámico según tipoPedido:
-  //   Muestra        → "Muestra | 1 Canvas 60x80cm"
-  //   Reposición     → "Reposición | 1 Canvas 60x80cm"
-  //   Pedido Especial → "Pedido Especial | 1 Canvas 60x80cm"
-  const prefix =
-    (tipoPedido && String(tipoPedido).trim()) ||
-    WOOCOMMERCE.CUSTOM_PRODUCT_PREFIX;
-  const nombre =
-    `${prefix} | ${qty} ${materialLabel(row)} ` + medidasLabel(row);
-
-  const fields = buildCuadroFields(row);
-
-  // Para attributes de WooCommerce: name, visible:true, options:[<value>].
-  const attributes = fields.map((f) => ({
-    name: f.name,
-    visible: true,
-    options: [f.value],
-  }));
-
-  // Para meta_data del line_item: key/value plano (formato heredado, sigue
-  // funcionando como antes en Krea Studio).
-  const meta_data = fields.map((f) => ({ key: f.name, value: f.value }));
-
-  return {
-    product_id: 0,
-    create_product: true,
-    product_draft: {
-      name: nombre,
-      type: "simple",
-      regular_price: String(puExTax),
-      status: "publish",
-      catalog_visibility: "hidden",
-      attributes,
-    },
-    quantity: qty,
-    subtotal: String(totalExTax),
-    total: String(totalExTax),
-    meta_data,
-  };
-}
+// Nota: buildLineItem, buildCuadroFields, materialLabel, medidasLabel
+// se removieron cuando pasamos a construir line_items server-side desde la
+// Zoho Function. Ver comentario en buildWooOrderPayload — el widget ya no
+// serializa cuadros al order_input (mitiga el 413 Content Too Large del
+// gateway de Zoho Functions para pedidos grandes). Toda la lógica de
+// prefijo, attributes, cálculo ex-tax por línea y lookup de Woocommerce_ID
+// vive ahora en standalone.krea_create_woocommerce_order (Deluge).
+// `exTax` sigue arriba porque el fee_lines del descuento se calcula acá.
 
 /**
  * Construye las entradas de `meta_data` a nivel ORDEN para que el pago aparezca
@@ -236,8 +145,6 @@ export function buildWooOrderPayload({
   breakdown,
   dealId,
 }) {
-  // tipoPedido lo necesita buildLineItem para el prefijo del producto custom.
-  const _tipoPedido = tipoPedido || "";
   const firstName = contacto?.firstName || "";
   const lastName = contacto?.lastName || contacto?.fullName || "";
 
@@ -264,8 +171,10 @@ export function buildWooOrderPayload({
     phone: contacto?.phone || "",
   };
 
-  const line_items = (rows || []).map((row) => buildLineItem(row, _tipoPedido));
-
+  // line_items NO se serializan desde el widget — los construye la Zoho
+  // Function leyendo el subform Cuadros_Orden del Deal. Esto mantiene el
+  // order_input en <3 KB independiente de la cantidad de cuadros y evita
+  // el 413 Content Too Large del gateway de Zoho Functions.
   const fee_lines = [];
   const descuento = toNumber(totals?.descuento) || 0;
   if (descuento > 0) {
@@ -331,7 +240,8 @@ export function buildWooOrderPayload({
     set_paid: Boolean(metodoPago),
     billing,
     shipping: address,
-    line_items,
+    // line_items INTENCIONALMENTE OMITIDOS — la Zoho Function los construye
+    // server-side leyendo el subform Cuadros_Orden del Deal.
     fee_lines,
     customer_note,
     meta_data,
@@ -345,11 +255,13 @@ export function buildWooOrderPayload({
  *   string standalone.krea_create_woocommerce_order(String order_input,
  *                                                   String deal_id)
  *
- * `order_input` viaja como string JSON serializado del WC payload (line_items,
- * billing, shipping, fee_lines, meta_data). La función parsea, crea productos
- * personalizados si aplica, postea la orden en WooCommerce y actualiza el
- * Deal con Numero_de_orden / Woocommerce_Order_ID. La tienda (KC/KS) la
- * resuelve leyendo el Deal — no se manda como argumento.
+ * `order_input` viaja como string JSON serializado con solo los metadatos
+ * del pedido (billing, shipping, fee_lines, customer_note, meta_data —
+ * SIN line_items). La función Deluge lee `Cuadros_Orden` del Deal, arma
+ * los line_items server-side, crea los productos personalizados en batch,
+ * postea la orden en WooCommerce y actualiza el Deal con Numero_de_orden /
+ * Woocommerce_Order_ID. La tienda (KC/KS) también la resuelve del Deal.
+ * Ver docs/WOOCOMMERCE_FUNCTION.md para el detalle.
  *
  * Nunca lanza: devuelve { ok, order_id, order_number } | { ok:false, error }.
  */
